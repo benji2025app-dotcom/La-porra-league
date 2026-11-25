@@ -14,6 +14,10 @@ export default function AuthLayout({ children }: LayoutProps<'/'>) {
         />
       </div>
       <div className="mt-8 flex-1">{children}</div>
+      <nav className="mt-10 flex justify-center gap-5 text-xs text-ivory-muted">
+        <a href="/privacidad" className="hover:text-ivory">Privacidad</a>
+        <a href="/condiciones" className="hover:text-ivory">Condiciones</a>
+      </nav>
     </main>
   )
 }

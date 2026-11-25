@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { Database } from '@/lib/database.types'
 
 // Rutas accesibles sin sesión.
-const PUBLIC_PATHS = ['/login', '/registro', '/recuperar', '/auth/confirm']
+const PUBLIC_PATHS = ['/login', '/registro', '/recuperar', '/auth/confirm', '/privacidad', '/condiciones']
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
