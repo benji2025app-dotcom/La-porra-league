@@ -112,3 +112,28 @@ export async function logout() {
   await supabase.auth.signOut()
   redirect('/login')
 }
+
+export async function signInWithGoogle() {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${await siteOrigin()}/auth/confirm?next=/`, queryParams: { prompt: 'select_account' } },
+  })
+  if (error || !data.url) redirect('/login?aviso=google')
+  redirect(data.url)
+}
+
+export async function redeemInviteCode(_: FormState, formData: FormData): Promise<FormState> {
+  const parsed = z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9-]{6,32}$/, 'Escribe el código de invitación que te ha pasado el administrador.')
+    .safeParse(formData.get('invite_code'))
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('redeem_invite_code', { p_code: parsed.data })
+  if (error) return { error: 'El código de invitación no es válido o ha caducado.' }
+  redirect('/pendiente')
+}

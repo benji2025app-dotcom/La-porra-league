@@ -5,6 +5,7 @@ export const metadata: Metadata = { title: 'Entrar' }
 
 const AVISOS: Record<string, string> = {
   confirmado: 'Tu correo está confirmado. Entra con tu contraseña.',
+  google: 'No se ha podido entrar con Google. Inténtalo de nuevo o usa tu correo.',
   enlace: 'Ese enlace no es válido o ha caducado. Entra con tu contraseña o pide uno nuevo.',
 }
 

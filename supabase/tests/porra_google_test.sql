@@ -1,0 +1,5 @@
+-- LA PORRA LEAGUE · Tests del alta con Google (ejecutar en base sin usuarios; resultado esperado: ALL_TESTS_PASSED)
+-- Requiere las funciones porra_test.as_user / expect_error de porra_rules_test.sql (copiarlas al inicio).
+-- G1 fundador por Google = admin · G2 Google crea pendiente sin código · G3 email sin código rechazado
+-- G4 no se aprueba sin código canjeado · G5 código falso rechazado · G6-G7 canje correcto y consumo
+-- G8 aprobación tras canjear · G9 anon no puede canjear (verificado con has_function_privilege)

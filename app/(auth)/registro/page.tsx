@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useActionState } from 'react'
 import { register } from '../actions'
 import { Field, FormMessage, SubmitButton } from '@/components/ui'
+import { GoogleButton, OrDivider } from '@/components/google-button'
 
 export default function RegisterPage() {
   const [state, action] = useActionState(register, undefined)
@@ -27,7 +28,12 @@ export default function RegisterPage() {
       <h1 className="font-display text-[1.7rem] font-semibold leading-tight">Crea tu cuenta</h1>
       <p className="mt-2 text-ivory-muted">Necesitas el código que te ha pasado el administrador. Cuando apruebe tu acceso, podrás jugar.</p>
 
-      <form action={action} className="mt-7 space-y-4" noValidate>
+      <div className="mt-7">
+        <GoogleButton label="Registrarme con Google" />
+        <p className="mt-2 text-center text-xs text-ivory-muted">Con Google te pediremos el código justo después.</p>
+      </div>
+      <OrDivider />
+      <form action={action} className="space-y-4" noValidate>
         <Field
           label="Código de invitación"
           name="invite_code"

@@ -239,6 +239,7 @@ export type Database = {
         Returns: PredictionRow
         SetofOptions: { from: '*'; to: 'predictions'; isOneToOne: true; isSetofReturn: false }
       }
+      redeem_invite_code: { Args: { p_code: string }; Returns: undefined }
       update_my_display_name: { Args: { p_display_name: string }; Returns: undefined }
     }
     Enums: {
