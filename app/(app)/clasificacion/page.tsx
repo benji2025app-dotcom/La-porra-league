@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { requireMember } from '@/lib/auth'
 import { money } from '@/lib/format'
 
@@ -6,7 +7,14 @@ export const metadata: Metadata = { title: 'Clasificación' }
 
 export default async function LeaderboardPage() {
   const { supabase, user } = await requireMember()
-  const { data: rows } = await supabase.rpc('get_leaderboard')
+  const [{ data: rows }, { data: winners }] = await Promise.all([
+    supabase.rpc('get_leaderboard'),
+    supabase
+      .from('round_winners')
+      .select('round_id, user_id, share_cents, rounds(name, number), profiles(display_name)')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
   const anyPlayed = (rows ?? []).some((r) => r.rounds_played > 0)
 
   return (
@@ -45,6 +53,29 @@ export default async function LeaderboardPage() {
           </tbody>
         </table>
       )}
+
+      <section aria-labelledby="ganadores" className="space-y-2 pt-2">
+        <h2 id="ganadores" className="font-display text-xl font-semibold">
+          Historial de ganadores
+        </h2>
+        {(winners ?? []).length === 0 ? (
+          <p className="text-sm text-ivory-muted">Todavía nadie ha acertado los dos marcadores.</p>
+        ) : (
+          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-carbon-2 text-sm">
+            {winners!.map((w) => (
+              <li key={`${w.round_id}-${w.user_id}`}>
+                <Link href={`/calendario/${w.round_id}`} className="flex items-center justify-between px-4 py-3 hover:bg-carbon-3">
+                  <span>
+                    <span className="block font-semibold">{w.profiles?.display_name}</span>
+                    <span className="block text-xs text-ivory-muted">{w.rounds?.name}</span>
+                  </span>
+                  <span className="font-display font-bold text-gold-bright tabular-nums">{money(w.share_cents)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }
