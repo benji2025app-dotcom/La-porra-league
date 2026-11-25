@@ -15,3 +15,6 @@ La aplicación **no gestiona pagos**: los importes son informativos (por defecto
 
 ## Base de datos
 Migraciones en `supabase/migrations`, tests de reglas en `supabase/tests`.
+
+### Tests
+`supabase/tests/porra_rules_test.sql` ejecuta 50+ comprobaciones (registro, visibilidad, bloqueo, liquidación, bote, anulación, clasificación y permisos). Se ejecuta en una base sin usuarios y lo deshace todo al terminar: el resultado correcto es el error `ALL_TESTS_PASSED`.
