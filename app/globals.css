@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/* LA PORRA LEAGUE · sistema visual
+   Negro carbón, dorado y marfil. Los colores de club solo aparecen como acento (la cinta y los filos de partido). */
+@theme {
+  --color-carbon: #141317;
+  --color-carbon-2: #1c1a20;
+  --color-carbon-3: #252229;
+  --color-line: #34303a;
+  --color-gold: #c8a04b;
+  --color-gold-bright: #edd089;
+  --color-gold-deep: #8a6623;
+  --color-ivory: #f3ecdc;
+  --color-ivory-muted: #a8a094;
+  --color-danger: #e0705f;
+  --color-ok: #7fc79a;
+
+  --color-barca-blue: #1e4fa3;
+  --color-barca-garnet: #a3133f;
+  --color-madrid: #6b4aa0;
+  --color-betis: #0f9d58;
+  --color-sevilla: #d11f2a;
+
+  --font-display: "Cinzel", "Times New Roman", serif;
+  --font-sans: "Albert Sans Variable", system-ui, sans-serif;
+
+  --radius-ticket: 18px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-carbon);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgb(200 160 75 / 0.13), transparent 60%),
+    var(--color-carbon);
+  background-attachment: fixed;
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;
+}
+
+/* Filo dorado: borde degradado como el marco del logo */
+.gold-frame {
+  position: relative;
+  border-radius: var(--radius-ticket);
+  background:
+    linear-gradient(var(--color-carbon-2), var(--color-carbon-2)) padding-box,
+    linear-gradient(140deg, var(--color-gold-bright), var(--color-gold-deep) 45%, var(--color-gold) 100%) border-box;
+  border: 1px solid transparent;
+}
+
+/* La cinta: el arco de colores bajo el logo */
+.club-ribbon {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-barca-blue) 0 22%,
+    var(--color-barca-garnet) 22% 30%,
+    var(--color-gold) 30% 70%,
+    var(--color-betis) 70% 78%,
+    var(--color-ivory) 78% 84%,
+    var(--color-sevilla) 84% 100%
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}
+
+.btn-gold {
+  background: linear-gradient(180deg, var(--color-gold-bright), var(--color-gold) 55%, var(--color-gold-deep));
+  color: #1a1408;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 6px 20px -8px rgb(200 160 75 / 0.55);
+}
+.btn-gold:hover {
+  filter: brightness(1.06);
+}
+.btn-gold:disabled {
+  filter: grayscale(0.6) brightness(0.7);
+}
+
+.field {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--color-line);
+  background: var(--color-carbon);
+  padding: 0.8rem 0.95rem;
+  color: var(--color-ivory);
+  font-size: 1rem;
+  transition: border-color 0.15s;
+}
+.field::placeholder {
+  color: rgb(168 160 148 / 0.6);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgb(200 160 75 / 0.2);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold-bright);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
