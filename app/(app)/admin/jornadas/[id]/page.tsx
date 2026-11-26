@@ -12,6 +12,7 @@ import { ActionForm } from '@/components/action-form'
 import { Field } from '@/components/ui'
 import { RoundStatus } from '@/components/round-status'
 import { Crest, clubEdge, clubLabel } from '@/components/crest'
+import { TEAM_CATALOG } from '@/lib/team-catalog'
 import {
   deleteRound,
   reopenRound,
@@ -54,8 +55,8 @@ function FixtureFields({ club, fixture }: { club: Team; fixture?: Fixture }) {
     <>
       <Field label="Competición" name="competition" list="competiciones" defaultValue={fixture?.competition ?? 'LaLiga'} required />
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Local" name="home_team" defaultValue={fixture?.home_team ?? club.name} required />
-        <Field label="Visitante" name="away_team" defaultValue={fixture?.away_team ?? ''} required />
+        <Field label="Local" name="home_team" list="equipos" defaultValue={fixture?.home_team ?? club.name} required />
+        <Field label="Visitante" name="away_team" list="equipos" defaultValue={fixture?.away_team ?? ''} required />
       </div>
       <p className="-mt-1 text-xs text-ivory-muted">
         Uno de los dos tiene que ser el {club.short_name ?? club.name}. Si juega fuera, ponlo como visitante. El escudo del rival se busca solo.
@@ -209,6 +210,11 @@ export default async function AdminRoundPage({ params }: PageProps<'/admin/jorna
 
   return (
     <div className="space-y-6">
+      <datalist id="equipos">
+        {TEAM_CATALOG.map((t) => (
+          <option key={t.name} value={t.name} />
+        ))}
+      </datalist>
       <datalist id="competiciones">
         {COMPETITIONS.map((c) => (
           <option key={c} value={c} />

@@ -1,4 +1,5 @@
 import 'server-only'
+import { catalogTeam } from '@/lib/team-catalog'
 
 // Busca el escudo de un equipo en TheSportsDB (API pública). Devuelve null si no lo encuentra.
 const API = 'https://www.thesportsdb.com/api/v1/json/123/searchteams.php?t='
@@ -14,6 +15,8 @@ function variants(name: string) {
 }
 
 export async function findCrest(name: string): Promise<string | null> {
+  const known = catalogTeam(name)
+  if (known) return known.crest
   for (const v of variants(name)) {
     try {
       const res = await fetch(API + encodeURIComponent(v), { cache: 'no-store', signal: AbortSignal.timeout(4000) })

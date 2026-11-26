@@ -7,6 +7,7 @@ import { requireAdmin } from '@/lib/auth'
 import { dbError } from '@/lib/errors'
 import { madridLocalToIso } from '@/lib/time'
 import { findCrest } from '@/lib/crests'
+import { catalogTeam, normTeam } from '@/lib/team-catalog'
 import type { FormState } from '@/app/(auth)/actions'
 
 const uuid = z.uuid()
@@ -19,26 +20,28 @@ function refresh(roundId?: string) {
   if (roundId) revalidatePath(`/admin/jornadas/${roundId}`)
 }
 
-const escapeLike = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`)
-
-// Devuelve el equipo con ese nombre; si no existe lo crea y busca su escudo.
+// Devuelve el equipo con ese nombre (o uno equivalente: "Alavés" = "Deportivo Alavés").
+// Si no existe lo crea con su escudo del catálogo o, si no está, lo busca fuera.
 async function ensureTeam(supabase: Supa, name: string) {
   const clean = name.trim()
-  const { data: found } = await supabase.from('teams').select('id, crest_url').ilike('name', escapeLike(clean)).maybeSingle()
+  const known = catalogTeam(clean)
+  const keys = new Set([normTeam(clean), ...(known ? [known.name, known.short, ...known.aliases].map(normTeam) : [])])
+  const { data: teams } = await supabase.from('teams').select('id, name, short_name, crest_url')
+  const found = (teams ?? []).find((t) => keys.has(normTeam(t.name)) || (t.short_name && keys.has(normTeam(t.short_name))))
   if (found) {
     if (!found.crest_url) {
-      const crest = await findCrest(clean)
+      const crest = known?.crest ?? (await findCrest(clean))
       if (crest) await supabase.from('teams').update({ crest_url: crest }).eq('id', found.id)
     }
     return found.id
   }
-  const crest = await findCrest(clean)
-  const { data: created, error } = await supabase.from('teams').insert({ name: clean, crest_url: crest }).select('id').single()
-  if (error) {
-    const { data: again } = await supabase.from('teams').select('id').ilike('name', escapeLike(clean)).maybeSingle()
-    if (again) return again.id
-    throw new Error(dbError(error, 'No se ha podido crear el equipo.'))
-  }
+  const crest = known?.crest ?? (await findCrest(clean))
+  const { data: created, error } = await supabase
+    .from('teams')
+    .insert({ name: known?.name ?? clean, short_name: known?.short ?? null, crest_url: crest })
+    .select('id')
+    .single()
+  if (error) throw new Error(dbError(error, 'No se ha podido crear el equipo.'))
   return created.id
 }
 
