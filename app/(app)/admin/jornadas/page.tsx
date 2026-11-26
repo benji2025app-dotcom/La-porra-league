@@ -10,25 +10,33 @@ import { createRound } from '../actions'
 export const metadata: Metadata = { title: 'Jornadas' }
 
 export default async function AdminRoundsPage() {
-  const { supabase } = await requireAdmin()
-  const { data: rounds } = await supabase.from('rounds').select('id, name, number, status').order('number', { ascending: false })
+  const { supabase, league } = await requireAdmin()
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, number, status')
+    .eq('league_id', league.id)
+    .order('number', { ascending: false })
   const next = (rounds?.[0]?.number ?? 0) + 1
 
   return (
     <div className="space-y-8">
       <section className="rounded-2xl border border-line bg-carbon-2 p-4">
-        <h2 className="mb-3 font-display text-lg font-semibold">Nueva jornada</h2>
+        <h2 className="mb-3 font-display text-lg font-semibold">Nueva jornada en {league.name}</h2>
         <ActionForm action={createRound} label="Crear jornada" pending="Creando…">
+          <input type="hidden" name="league_id" value={league.id} />
           <div className="grid grid-cols-[6rem_1fr] gap-3">
             <Field label="Número" name="number" type="number" inputMode="numeric" min={1} defaultValue={next} required />
             <Field label="Nombre (opcional)" name="name" maxLength={60} placeholder={`Jornada ${next}`} />
           </div>
         </ActionForm>
-        <p className="mt-2 text-xs text-ivory-muted">Se crea en borrador. Añade los dos partidos y publícala para que se pueda pronosticar.</p>
+        <p className="mt-2 text-xs text-ivory-muted">
+          Se crea en borrador. Añade el partido del {league.club_a.short_name ?? league.club_a.name} y el del{' '}
+          {league.club_b.short_name ?? league.club_b.name} y publícala.
+        </p>
       </section>
 
       <section className="space-y-2">
-        <h2 className="font-display text-lg font-semibold">Todas las jornadas</h2>
+        <h2 className="font-display text-lg font-semibold">Jornadas de {league.name}</h2>
         {(rounds ?? []).length === 0 && <p className="text-sm text-ivory-muted">Aún no hay jornadas.</p>}
         {(rounds ?? []).map((r) => (
           <Link

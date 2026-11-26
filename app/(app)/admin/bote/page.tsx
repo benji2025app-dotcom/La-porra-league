@@ -14,12 +14,13 @@ const fmt = (iso: string) =>
   )
 
 export default async function PotPage() {
-  const { supabase } = await requireAdmin()
+  const { supabase, league } = await requireAdmin()
   const [{ data: balance }, { data: moves }] = await Promise.all([
-    supabase.rpc('get_pot_balance'),
+    supabase.rpc('get_pot_balance', { p_league_id: league.id }),
     supabase
       .from('pot_movements')
       .select('id, kind, amount_cents, note, created_at, rounds(name), profiles!pot_movements_user_id_fkey(display_name)')
+      .eq('league_id', league.id)
       .order('created_at', { ascending: false })
       .limit(100),
   ])
@@ -27,7 +28,7 @@ export default async function PotPage() {
   return (
     <div className="space-y-8">
       <div className="gold-frame px-5 py-4">
-        <p className="text-sm text-ivory-muted">Bote acumulado</p>
+        <p className="text-sm text-ivory-muted">Bote acumulado de {league.name}</p>
         <p className="font-display text-3xl font-bold text-gold-bright tabular-nums">{money(balance ?? 0)}</p>
       </div>
 
@@ -35,6 +36,7 @@ export default async function PotPage() {
         <h2 className="font-display text-lg font-semibold">Ajuste manual</h2>
         <p className="mb-3 mt-1 text-xs text-ivory-muted">Para cuadrar el bote con la realidad (por ejemplo, un bote inicial). Queda registrado con su motivo.</p>
         <ActionForm action={adjustPot} label="Registrar ajuste" confirm="Confirmar ajuste">
+          <input type="hidden" name="league_id" value={league.id} />
           <fieldset className="grid grid-cols-2 gap-2 text-sm">
             <legend className="sr-only">Tipo de ajuste</legend>
             <label className="flex items-center gap-2 rounded-xl border border-line px-3 py-2.5">

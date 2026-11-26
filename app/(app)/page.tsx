@@ -1,25 +1,27 @@
 import Link from 'next/link'
 import { Check, Clock } from 'lucide-react'
-import { requireMember } from '@/lib/auth'
+import { requireLeague } from '@/lib/auth'
 import { money } from '@/lib/format'
+import { FIXTURE_SELECT, byLeagueClub, clubOf, type FixtureView } from '@/lib/queries'
 import { FixtureRow } from '@/components/fixture-row'
 
 export default async function HomePage() {
-  const { supabase, user, profile } = await requireMember()
+  const { supabase, user, isAdmin, isPlayer, league } = await requireLeague()
 
   const [{ data: balance }, { data: season }, { data: round }] = await Promise.all([
-    supabase.rpc('get_pot_balance'),
+    supabase.rpc('get_pot_balance', { p_league_id: league.id }),
     supabase.from('seasons').select('pot_contribution_cents').eq('is_active', true).maybeSingle(),
     supabase
       .from('rounds')
-      .select('id, name, number, fixtures(id, club, competition, home_team, away_team, kickoff_at, status, home_goals, away_goals)')
+      .select(`id, name, number, fixtures(${FIXTURE_SELECT})`)
+      .eq('league_id', league.id)
       .eq('status', 'open')
       .order('number', { ascending: true })
       .limit(1)
       .maybeSingle(),
   ])
 
-  const fixtures = [...(round?.fixtures ?? [])].sort((a, b) => a.kickoff_at.localeCompare(b.kickoff_at))
+  const fixtures = [...((round?.fixtures ?? []) as unknown as FixtureView[])].sort(byLeagueClub(league))
   const fixtureIds = fixtures.map((f) => f.id)
 
   const [{ data: pot }, { data: submissions }, { data: mine }] = round
@@ -40,7 +42,7 @@ export default async function HomePage() {
       <section aria-labelledby="bote" className="gold-frame overflow-hidden px-6 pb-6 pt-5">
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(60%_100%_at_50%_0%,rgb(237_208_137/0.18),transparent)]" />
         <h2 id="bote" className="relative text-sm text-ivory-muted">
-          {round ? `Bote en juego, ${round.name}` : 'Bote acumulado'}
+          {round ? `Bote en juego, ${round.name}` : `Bote acumulado de ${league.name}`}
         </h2>
         <p className="relative mt-1 font-display text-[2.9rem] font-bold leading-none tracking-tight text-gold-bright tabular-nums">
           {money(potInPlay)}
@@ -58,9 +60,11 @@ export default async function HomePage() {
             <h2 id="jornada" className="font-display text-xl font-semibold">
               {round.name}
             </h2>
-            <Link href="/boleto" className="text-sm font-semibold text-gold-bright underline-offset-4 hover:underline">
-              {ticketDone ? 'Ver mi boleto' : 'Rellenar boleto'}
-            </Link>
+            {isPlayer && (
+              <Link href="/boleto" className="text-sm font-semibold text-gold-bright underline-offset-4 hover:underline">
+                {ticketDone ? 'Ver mi boleto' : 'Rellenar boleto'}
+              </Link>
+            )}
           </div>
           {fixtures.map((f) => {
             const p = myByFixture.get(f.id)
@@ -68,8 +72,9 @@ export default async function HomePage() {
               <FixtureRow
                 key={f.id}
                 fixture={f}
+                clubName={clubOf(league, f.club_team_id).name}
                 right={
-                  p ? (
+                  !isPlayer ? null : p ? (
                     <span className="font-display text-lg font-bold tabular-nums text-ivory" aria-label={`Tu pronóstico ${p.home_goals} a ${p.away_goals}`}>
                       {p.home_goals}–{p.away_goals}
                     </span>
@@ -85,7 +90,9 @@ export default async function HomePage() {
         <section className="rounded-2xl border border-dashed border-line px-5 py-8 text-center">
           <p className="font-display text-lg">No hay jornada abierta</p>
           <p className="mt-1 text-sm text-ivory-muted">
-            {profile.role === 'admin' ? 'Crea la siguiente jornada desde el panel de administración.' : 'El administrador publicará la siguiente en cuanto se conozcan los partidos.'}
+            {isAdmin
+              ? 'Crea la siguiente jornada de esta porra desde el panel de administración.'
+              : 'El administrador publicará la siguiente en cuanto se conozcan los partidos.'}
           </p>
         </section>
       )}

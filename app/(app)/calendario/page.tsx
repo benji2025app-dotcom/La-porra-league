@@ -1,20 +1,22 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import { requireMember } from '@/lib/auth'
+import { requireLeague } from '@/lib/auth'
 import { money } from '@/lib/format'
+import { FIXTURE_SELECT, byLeagueClub, clubOf, type FixtureView } from '@/lib/queries'
 import { FixtureRow } from '@/components/fixture-row'
 import { RoundStatus } from '@/components/round-status'
 
 export const metadata: Metadata = { title: 'Calendario' }
 
 export default async function CalendarPage() {
-  const { supabase } = await requireMember()
+  const { supabase, league } = await requireLeague()
   const { data: rounds } = await supabase
     .from('rounds')
     .select(
-      'id, name, number, status, fixtures(id, club, competition, home_team, away_team, kickoff_at, status, home_goals, away_goals), round_settlements(winners_count, share_cents, pot_after_cents), round_winners(profiles(display_name))',
+      `id, name, number, status, fixtures(${FIXTURE_SELECT}), round_settlements(winners_count, share_cents, pot_after_cents), round_winners(profiles(display_name))`,
     )
+    .eq('league_id', league.id)
     .neq('status', 'draft')
     .order('number', { ascending: false })
 
@@ -22,17 +24,17 @@ export default async function CalendarPage() {
     <div className="space-y-5">
       <header>
         <h1 className="font-display text-2xl font-semibold">Calendario</h1>
-        <p className="mt-1 text-sm text-ivory-muted">Todas las jornadas, sus partidos y quién se llevó el bote.</p>
+        <p className="mt-1 text-sm text-ivory-muted">Jornadas de {league.name}, sus partidos y quién se llevó el bote.</p>
       </header>
 
       {(rounds ?? []).length === 0 && (
         <p className="rounded-2xl border border-dashed border-line px-5 py-8 text-center text-sm text-ivory-muted">
-          Todavía no se ha publicado ninguna jornada.
+          Todavía no se ha publicado ninguna jornada en esta porra.
         </p>
       )}
 
       {(rounds ?? []).map((r) => {
-        const fixtures = [...(r.fixtures ?? [])].sort((a, b) => a.kickoff_at.localeCompare(b.kickoff_at))
+        const fixtures = [...((r.fixtures ?? []) as unknown as FixtureView[])].sort(byLeagueClub(league))
         const s = Array.isArray(r.round_settlements) ? r.round_settlements[0] : r.round_settlements
         const winners = (r.round_winners ?? []).map((w) => w.profiles?.display_name).filter(Boolean)
         return (
@@ -47,7 +49,7 @@ export default async function CalendarPage() {
               </span>
             </Link>
             {fixtures.map((f) => (
-              <FixtureRow key={f.id} fixture={f} />
+              <FixtureRow key={f.id} fixture={f} clubName={clubOf(league, f.club_team_id).name} />
             ))}
             {s && r.status === 'settled' && (
               <p className="px-1 text-sm text-ivory-muted">

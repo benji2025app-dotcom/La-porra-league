@@ -1,34 +1,37 @@
-import { serverNow } from '@/lib/time'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { requireAdmin } from '@/lib/auth'
 import { money } from '@/lib/format'
+import { serverNow } from '@/lib/time'
 import { RoundStatus } from '@/components/round-status'
 
 export const metadata: Metadata = { title: 'Administración' }
 
 export default async function AdminHome() {
-  const { supabase } = await requireAdmin()
+  const { supabase, league } = await requireAdmin()
   const [{ data: members }, { data: balance }, { data: rounds }] = await Promise.all([
-    supabase.rpc('admin_list_members'),
-    supabase.rpc('get_pot_balance'),
+    supabase.rpc('admin_list_members', {}),
+    supabase.rpc('get_pot_balance', { p_league_id: league.id }),
     supabase
       .from('rounds')
       .select('id, name, number, status, fixtures(id, status, home_goals, kickoff_at)')
+      .eq('league_id', league.id)
       .in('status', ['draft', 'open'])
       .order('number'),
   ])
 
-  const pending = (members ?? []).filter((m) => m.status === 'pending')
-  const active = (members ?? []).filter((m) => m.status === 'active').length
+  const pendingAll = (members ?? []).filter((m) => m.member_status === 'pending')
+  const pendingHere = pendingAll.filter((m) => m.league_id === league.id).length
+  const pendingElsewhere = [...new Set(pendingAll.filter((m) => m.league_id !== league.id).map((m) => m.league_name))]
+  const active = (members ?? []).filter((m) => m.league_id === league.id && m.member_status === 'active').length
   const now = serverNow()
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3">
         <div className="gold-frame px-4 py-4">
-          <p className="text-xs text-ivory-muted">Bote acumulado</p>
+          <p className="text-xs text-ivory-muted">Bote de {league.name}</p>
           <p className="mt-1 font-display text-2xl font-bold text-gold-bright tabular-nums">{money(balance ?? 0)}</p>
         </div>
         <div className="rounded-[18px] border border-line bg-carbon-2 px-4 py-4">
@@ -37,13 +40,18 @@ export default async function AdminHome() {
         </div>
       </div>
 
-      {pending.length > 0 && (
+      {pendingHere > 0 && (
         <Link href="/admin/jugadores" className="flex items-center gap-3 rounded-2xl border border-gold/50 bg-gold/10 px-4 py-3.5">
           <span className="flex-1 text-sm">
-            <strong>{pending.length === 1 ? '1 jugador espera' : `${pending.length} jugadores esperan`}</strong> tu aprobación
+            <strong>{pendingHere === 1 ? '1 jugador espera' : `${pendingHere} jugadores esperan`}</strong> tu aprobación en {league.name}
           </span>
           <ChevronRight size={18} aria-hidden />
         </Link>
+      )}
+      {pendingElsewhere.length > 0 && (
+        <p className="rounded-2xl border border-line bg-carbon-2 px-4 py-3 text-sm text-ivory-muted">
+          También hay solicitudes pendientes en {pendingElsewhere.join(', ')}. Cambia de porra arriba para aprobarlas.
+        </p>
       )}
 
       <section className="space-y-3">
@@ -55,7 +63,7 @@ export default async function AdminHome() {
         </div>
         {(rounds ?? []).length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line px-4 py-6 text-center text-sm text-ivory-muted">
-            No hay jornadas en borrador ni abiertas.
+            No hay jornadas en borrador ni abiertas en {league.name}.
           </p>
         ) : (
           rounds!.map((r) => {

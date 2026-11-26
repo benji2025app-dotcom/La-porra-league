@@ -4,11 +4,14 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
 import { kickoff, money } from '@/lib/format'
 import { isoToMadridLocal } from '@/lib/time'
+import { serverNow } from '@/lib/time'
 import type { Tables } from '@/lib/database.types'
+import type { Team } from '@/lib/auth'
+import { FIXTURE_SELECT, isLocked, type FixtureView } from '@/lib/queries'
 import { ActionForm } from '@/components/action-form'
 import { Field } from '@/components/ui'
 import { RoundStatus } from '@/components/round-status'
-import { CLUB_EDGE, CLUB_NAME } from '@/components/fixture-row'
+import { Crest, clubEdge, clubLabel } from '@/components/crest'
 import {
   deleteRound,
   reopenRound,
@@ -23,11 +26,18 @@ import {
 
 export const metadata: Metadata = { title: 'Gestionar jornada' }
 
-type Fixture = Tables<'fixtures'>
-type Club = Fixture['club']
+type Fixture = FixtureView
 
-const COMPETITIONS = ['LaLiga', 'Champions League', 'Copa del Rey', 'Supercopa de España', 'Mundial de Clubes', 'Supercopa de Europa']
-const DEFAULT_TEAM: Record<Club, string> = { barcelona: 'FC Barcelona', real_madrid: 'Real Madrid' }
+const COMPETITIONS = [
+  'LaLiga',
+  'Champions League',
+  'Europa League',
+  'Conference League',
+  'Copa del Rey',
+  'Supercopa de España',
+  'Mundial de Clubes',
+  'Supercopa de Europa',
+]
 
 function Hidden(props: Record<string, string>) {
   return (
@@ -39,14 +49,17 @@ function Hidden(props: Record<string, string>) {
   )
 }
 
-function FixtureFields({ club, fixture }: { club: Club; fixture?: Fixture }) {
+function FixtureFields({ club, fixture }: { club: Team; fixture?: Fixture }) {
   return (
     <>
       <Field label="Competición" name="competition" list="competiciones" defaultValue={fixture?.competition ?? 'LaLiga'} required />
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Local" name="home_team" defaultValue={fixture?.home_team ?? DEFAULT_TEAM[club]} required />
+        <Field label="Local" name="home_team" defaultValue={fixture?.home_team ?? club.name} required />
         <Field label="Visitante" name="away_team" defaultValue={fixture?.away_team ?? ''} required />
       </div>
+      <p className="-mt-1 text-xs text-ivory-muted">
+        Uno de los dos tiene que ser el {club.short_name ?? club.name}. Si juega fuera, ponlo como visitante. El escudo del rival se busca solo.
+      </p>
       <Field
         label="Inicio (hora de Madrid)"
         name="kickoff"
@@ -76,15 +89,30 @@ function ScoreInput({ name, label, value }: { name: string; label: string; value
   )
 }
 
-function FixtureCard({ roundId, roundStatus, club, fixture }: { roundId: string; roundStatus: Tables<'rounds'>['status']; club: Club; fixture?: Fixture }) {
+function FixtureCard({
+  roundId,
+  roundStatus,
+  club,
+  fixture,
+  now,
+}: {
+  roundId: string
+  roundStatus: Tables<'rounds'>['status']
+  club: Team
+  fixture?: Fixture
+  now: number
+}) {
   const closed = roundStatus === 'settled' || roundStatus === 'void'
-  const locked = !!fixture && (fixture.locked_at !== null || new Date(fixture.kickoff_at) <= new Date() || ['live', 'finished'].includes(fixture.status))
-  const base = { round_id: roundId, club }
+  const locked = !!fixture && isLocked(fixture, now)
+  const base = { round_id: roundId, club_team_id: club.id }
 
   return (
     <article className="relative overflow-hidden rounded-2xl border border-line bg-carbon-2 p-4 pl-5">
-      <span aria-hidden className={`absolute inset-y-0 left-0 w-1 ${CLUB_EDGE[club]}`} />
-      <h3 className="font-display text-base font-semibold">{CLUB_NAME[club]}</h3>
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: clubEdge(club.name) }} />
+      <h3 className="flex items-center gap-2 font-display text-base font-semibold">
+        <Crest team={club} size={22} />
+        {clubLabel(club)}
+      </h3>
 
       {!fixture ? (
         closed ? (
@@ -97,8 +125,12 @@ function FixtureCard({ roundId, roundStatus, club, fixture }: { roundId: string;
         )
       ) : (
         <>
-          <p className="mt-1 text-sm">
-            {fixture.home_team} <span className="text-ivory-muted">vs</span> {fixture.away_team}
+          <p className="mt-2 flex items-center gap-2 text-sm">
+            <Crest team={fixture.home} name={fixture.home_team} size={24} />
+            <span className="min-w-0 truncate">{fixture.home_team}</span>
+            <span className="text-ivory-muted">vs</span>
+            <span className="min-w-0 truncate">{fixture.away_team}</span>
+            <Crest team={fixture.away} name={fixture.away_team} size={24} />
           </p>
           <p className="text-xs text-ivory-muted">
             {fixture.competition}, {kickoff(fixture.kickoff_at)}
@@ -157,16 +189,20 @@ function FixtureCard({ roundId, roundStatus, club, fixture }: { roundId: string;
 
 export default async function AdminRoundPage({ params }: PageProps<'/admin/jornadas/[id]'>) {
   const { id } = await params
-  const { supabase } = await requireAdmin()
+  const { supabase, leagues } = await requireAdmin()
   const { data: round } = await supabase
     .from('rounds')
-    .select('id, name, number, status, fixtures(*), round_settlements(*), round_winners(share_cents, profiles(display_name))')
+    .select('id, league_id, name, number, status, round_settlements(*), round_winners(share_cents, profiles(display_name))')
     .eq('id', id)
     .maybeSingle()
   if (!round) notFound()
+  const league = leagues.find((l) => l.id === round.league_id)
+  if (!league) notFound()
+  const { data: fx } = await supabase.from('fixtures').select(FIXTURE_SELECT).eq('round_id', id)
 
-  const fixtures = round.fixtures ?? []
-  const byClub = (c: Club) => fixtures.find((f) => f.club === c)
+  const fixtures = (fx ?? []) as unknown as Fixture[]
+  const byClub = (c: Team) => fixtures.find((f) => f.club_team_id === c.id)
+  const now = serverNow()
   const settlement = Array.isArray(round.round_settlements) ? round.round_settlements[0] : round.round_settlements
   const { data: submissions } = round.status === 'open' ? await supabase.rpc('get_round_submissions', { p_round_id: id }) : { data: null }
   const closed = round.status === 'settled' || round.status === 'void'
@@ -182,22 +218,23 @@ export default async function AdminRoundPage({ params }: PageProps<'/admin/jorna
       <div className="flex items-center justify-between gap-3">
         <div>
           <Link href="/admin/jornadas" className="text-sm text-ivory-muted hover:text-ivory">
-            Jornadas
+            Jornadas de {league.name}
           </Link>
           <h2 className="font-display text-xl font-semibold">{round.name}</h2>
         </div>
         <RoundStatus status={round.status} />
       </div>
 
-      <FixtureCard roundId={id} roundStatus={round.status} club="barcelona" fixture={byClub('barcelona')} />
-      <FixtureCard roundId={id} roundStatus={round.status} club="real_madrid" fixture={byClub('real_madrid')} />
+      {[league.club_a, league.club_b].map((club) => (
+        <FixtureCard key={club.id} roundId={id} roundStatus={round.status} club={club} fixture={byClub(club)} now={now} />
+      ))}
 
       {round.status === 'draft' && (
         <section className="space-y-3">
           <ActionForm action={setRoundStatus} label="Publicar jornada" pending="Publicando…">
             <Hidden round_id={id} status="open" />
           </ActionForm>
-          <p className="text-xs text-ivory-muted">Al publicarla, todos los jugadores la verán y podrán rellenar su boleto.</p>
+          <p className="text-xs text-ivory-muted">Al publicarla, los jugadores de {league.name} la verán y podrán rellenar su boleto.</p>
           <ActionForm action={deleteRound} label="Borrar jornada" variant="danger" confirm="Confirmar borrado">
             <Hidden round_id={id} />
           </ActionForm>
@@ -231,7 +268,7 @@ export default async function AdminRoundPage({ params }: PageProps<'/admin/jorna
               <summary className="cursor-pointer text-sm text-ivory-muted">Anular jornada (aplazamiento)</summary>
               <ActionForm action={voidRound} label="Anular jornada" variant="danger" confirm="Confirmar anulación" className="mt-3">
                 <Hidden round_id={id} />
-                <Field label="Motivo" name="reason" placeholder="Partido del Madrid aplazado" maxLength={200} required />
+                <Field label="Motivo" name="reason" placeholder="Partido aplazado" maxLength={200} required />
                 <p className="text-xs text-ivory-muted">Sin ganadores. Los boletos completos suman al bote.</p>
               </ActionForm>
             </details>

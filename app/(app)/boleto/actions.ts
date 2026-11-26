@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { requireMember } from '@/lib/auth'
+import { requireLeague } from '@/lib/auth'
 import { dbError } from '@/lib/errors'
 import type { FormState } from '@/app/(auth)/actions'
 
@@ -15,7 +15,7 @@ export async function submitPrediction(_: FormState, fd: FormData): Promise<Form
   if (!parsed.success) return { error: 'Elige un marcador entre 0 y 20 para cada equipo.' }
 
   // La autorización y el bloqueo por hora los valida la base de datos (hora del servidor).
-  const { supabase } = await requireMember()
+  const { supabase } = await requireLeague()
   const { error } = await supabase.rpc('submit_prediction', {
     p_fixture_id: parsed.data.fixture_id,
     p_home_goals: parsed.data.home,

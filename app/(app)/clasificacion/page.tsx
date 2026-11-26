@@ -1,17 +1,18 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { requireMember } from '@/lib/auth'
+import { requireLeague } from '@/lib/auth'
 import { money } from '@/lib/format'
 
 export const metadata: Metadata = { title: 'Clasificación' }
 
 export default async function LeaderboardPage() {
-  const { supabase, user } = await requireMember()
+  const { supabase, user, league } = await requireLeague()
   const [{ data: rows }, { data: winners }] = await Promise.all([
-    supabase.rpc('get_leaderboard'),
+    supabase.rpc('get_leaderboard', { p_league_id: league.id }),
     supabase
       .from('round_winners')
-      .select('round_id, user_id, share_cents, rounds(name, number), profiles(display_name)')
+      .select('round_id, user_id, share_cents, rounds!inner(name, number, league_id), profiles(display_name)')
+      .eq('rounds.league_id', league.id)
       .order('created_at', { ascending: false })
       .limit(50),
   ])
@@ -21,7 +22,7 @@ export default async function LeaderboardPage() {
     <div className="space-y-5">
       <section>
         <h1 className="font-display text-2xl font-semibold">Clasificación</h1>
-        <p className="mt-1 text-sm text-ivory-muted">Ordenada por jornadas ganadas, después por lo ganado y por marcadores acertados.</p>
+        <p className="mt-1 text-sm text-ivory-muted">{league.name}. Ordenada por jornadas ganadas, después por lo ganado y por marcadores acertados.</p>
       </section>
 
       {!anyPlayed ? (

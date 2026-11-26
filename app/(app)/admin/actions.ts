@@ -6,27 +6,69 @@ import { z } from 'zod'
 import { requireAdmin } from '@/lib/auth'
 import { dbError } from '@/lib/errors'
 import { madridLocalToIso } from '@/lib/time'
+import { findCrest } from '@/lib/crests'
 import type { FormState } from '@/app/(auth)/actions'
 
 const uuid = z.uuid()
 const goals = z.coerce.number().int().min(0, 'Goles entre 0 y 30.').max(30, 'Goles entre 0 y 30.')
+const teamName = z.string().trim().min(2, 'Nombre de equipo demasiado corto.').max(60)
+type Supa = Awaited<ReturnType<typeof requireAdmin>>['supabase']
 
 function refresh(roundId?: string) {
   revalidatePath('/', 'layout')
   if (roundId) revalidatePath(`/admin/jornadas/${roundId}`)
 }
 
-// Jugadores ------------------------------------------------------------------------
-export async function setMemberStatus(_: FormState, fd: FormData): Promise<FormState> {
+const escapeLike = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`)
+
+// Devuelve el equipo con ese nombre; si no existe lo crea y busca su escudo.
+async function ensureTeam(supabase: Supa, name: string) {
+  const clean = name.trim()
+  const { data: found } = await supabase.from('teams').select('id, crest_url').ilike('name', escapeLike(clean)).maybeSingle()
+  if (found) {
+    if (!found.crest_url) {
+      const crest = await findCrest(clean)
+      if (crest) await supabase.from('teams').update({ crest_url: crest }).eq('id', found.id)
+    }
+    return found.id
+  }
+  const crest = await findCrest(clean)
+  const { data: created, error } = await supabase.from('teams').insert({ name: clean, crest_url: crest }).select('id').single()
+  if (error) {
+    const { data: again } = await supabase.from('teams').select('id').ilike('name', escapeLike(clean)).maybeSingle()
+    if (again) return again.id
+    throw new Error(dbError(error, 'No se ha podido crear el equipo.'))
+  }
+  return created.id
+}
+
+// Jugadores ------------------------------------------------------------------------------
+export async function setMembership(_: FormState, fd: FormData): Promise<FormState> {
   const parsed = z
-    .object({ user_id: uuid, status: z.enum(['active', 'blocked', 'pending']) })
+    .object({ league_id: uuid, user_id: uuid, status: z.enum(['active', 'blocked', 'pending']) })
+    .safeParse({ league_id: fd.get('league_id'), user_id: fd.get('user_id'), status: fd.get('status') })
+  if (!parsed.success) return { error: 'Datos no válidos.' }
+  const { supabase } = await requireAdmin()
+  const { error } = await supabase.rpc('admin_set_membership', {
+    p_league_id: parsed.data.league_id,
+    p_user_id: parsed.data.user_id,
+    p_status: parsed.data.status,
+  })
+  if (error) return { error: dbError(error) }
+  refresh()
+  return { success: parsed.data.status === 'active' ? 'Jugador dentro de la porra.' : 'Jugador fuera de la porra.' }
+}
+
+export async function setAccountStatus(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z
+    .object({ user_id: uuid, status: z.enum(['active', 'blocked']) })
     .safeParse({ user_id: fd.get('user_id'), status: fd.get('status') })
   if (!parsed.success) return { error: 'Datos no válidos.' }
   const { supabase } = await requireAdmin()
-  const { error } = await supabase.rpc('admin_set_member_status', { p_user_id: parsed.data.user_id, p_status: parsed.data.status })
+  const { error } = await supabase.rpc('admin_set_account_status', { p_user_id: parsed.data.user_id, p_status: parsed.data.status })
   if (error) return { error: dbError(error) }
   refresh()
-  return { success: parsed.data.status === 'active' ? 'Jugador aprobado.' : 'Estado actualizado.' }
+  return { success: parsed.data.status === 'blocked' ? 'Cuenta desactivada en todas las porras.' : 'Cuenta reactivada.' }
 }
 
 export async function setMemberRole(_: FormState, fd: FormData): Promise<FormState> {
@@ -44,15 +86,17 @@ export async function setMemberRole(_: FormState, fd: FormData): Promise<FormSta
 export async function createInviteCode(_: FormState, fd: FormData): Promise<FormState> {
   const parsed = z
     .object({
+      league_id: uuid,
       note: z.string().trim().max(80).optional(),
-      max_uses: z.coerce.number().int().min(1).max(100),
+      max_uses: z.coerce.number().int().min(1).max(200),
       days: z.coerce.number().int().min(1).max(90),
     })
-    .safeParse({ note: fd.get('note') || undefined, max_uses: fd.get('max_uses'), days: fd.get('days') })
-  if (!parsed.success) return { error: 'Revisa los usos (1-100) y los días de validez (1-90).' }
+    .safeParse({ league_id: fd.get('league_id'), note: fd.get('note') || undefined, max_uses: fd.get('max_uses'), days: fd.get('days') })
+  if (!parsed.success) return { error: 'Revisa los usos (1-200) y los días de validez (1-90).' }
   const { supabase } = await requireAdmin()
   const expires = new Date(Date.now() + parsed.data.days * 86400000).toISOString()
   const { data, error } = await supabase.rpc('admin_create_invite_code', {
+    p_league_id: parsed.data.league_id,
     p_note: parsed.data.note,
     p_max_uses: parsed.data.max_uses,
     p_expires_at: expires,
@@ -72,21 +116,109 @@ export async function setInviteActive(_: FormState, fd: FormData): Promise<FormS
   return { success: active ? 'Código activado.' : 'Código desactivado.' }
 }
 
-// Jornadas -------------------------------------------------------------------------
+// Porras y equipos --------------------------------------------------------------------------
+export async function createLeague(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z
+    .object({ name: z.string().trim().min(2, 'Ponle nombre a la porra.').max(40), club_a: teamName, club_b: teamName, join: z.boolean() })
+    .safeParse({ name: fd.get('name'), club_a: fd.get('club_a'), club_b: fd.get('club_b'), join: fd.get('join') === 'on' })
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  if (parsed.data.club_a.toLowerCase() === parsed.data.club_b.toLowerCase()) return { error: 'Los dos clubes deben ser distintos.' }
+  const { supabase, user } = await requireAdmin()
+  try {
+    const [a, b] = await Promise.all([ensureTeam(supabase, parsed.data.club_a), ensureTeam(supabase, parsed.data.club_b)])
+    const { data, error } = await supabase.from('leagues').insert({ name: parsed.data.name, club_a_id: a, club_b_id: b }).select('id').single()
+    if (error) return { error: error.code === '23505' ? 'Ya existe una porra con ese nombre.' : dbError(error) }
+    if (parsed.data.join) {
+      await supabase.rpc('admin_set_membership', { p_league_id: data.id, p_user_id: user.id, p_status: 'active' })
+    }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'No se ha podido crear la porra.' }
+  }
+  refresh()
+  return { success: `Porra "${parsed.data.name}" creada. Elígela arriba para crear su primera jornada y sus códigos.` }
+}
+
+export async function updateLeague(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z
+    .object({ league_id: uuid, name: z.string().trim().min(2).max(40), is_active: z.boolean() })
+    .safeParse({ league_id: fd.get('league_id'), name: fd.get('name'), is_active: fd.get('is_active') === 'on' })
+  if (!parsed.success) return { error: 'Nombre no válido.' }
+  const { supabase } = await requireAdmin()
+  const { error } = await supabase
+    .from('leagues')
+    .update({ name: parsed.data.name, is_active: parsed.data.is_active })
+    .eq('id', parsed.data.league_id)
+  if (error) return { error: error.code === '23505' ? 'Ya existe una porra con ese nombre.' : dbError(error) }
+  refresh()
+  return { success: 'Porra guardada.' }
+}
+
+export async function updateTeam(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z
+    .object({
+      team_id: uuid,
+      name: teamName,
+      short_name: z.string().trim().max(14).optional(),
+      crest_url: z.union([z.literal(''), z.url({ protocol: /^https$/, message: 'El escudo debe ser un enlace https.' })]),
+    })
+    .safeParse({
+      team_id: fd.get('team_id'),
+      name: fd.get('name'),
+      short_name: fd.get('short_name') || undefined,
+      crest_url: String(fd.get('crest_url') ?? '').trim(),
+    })
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const { supabase } = await requireAdmin()
+  const { error } = await supabase
+    .from('teams')
+    .update({ name: parsed.data.name, short_name: parsed.data.short_name ?? null, crest_url: parsed.data.crest_url || null })
+    .eq('id', parsed.data.team_id)
+  if (error) return { error: error.code === '23505' ? 'Ya existe un equipo con ese nombre.' : dbError(error) }
+  refresh()
+  return { success: 'Equipo guardado.' }
+}
+
+export async function findMissingCrests(): Promise<FormState> {
+  const { supabase } = await requireAdmin()
+  const { data: teams } = await supabase.from('teams').select('id, name').is('crest_url', null).limit(30)
+  let found = 0
+  for (const t of teams ?? []) {
+    const crest = await findCrest(t.name)
+    if (crest) {
+      await supabase.from('teams').update({ crest_url: crest }).eq('id', t.id)
+      found++
+    }
+  }
+  refresh()
+  const missing = (teams ?? []).length - found
+  return {
+    success:
+      found === 0 && missing === 0
+        ? 'Todos los equipos tienen escudo.'
+        : `Escudos encontrados: ${found}.${missing ? ` Sin encontrar: ${missing} (puedes pegar su enlace a mano).` : ''}`,
+  }
+}
+
+// Jornadas --------------------------------------------------------------------------------------
 export async function createRound(_: FormState, fd: FormData): Promise<FormState> {
   const parsed = z
-    .object({ number: z.coerce.number().int().min(1).max(999), name: z.string().trim().max(60).optional() })
-    .safeParse({ number: fd.get('number'), name: fd.get('name') || undefined })
+    .object({ league_id: uuid, number: z.coerce.number().int().min(1).max(999), name: z.string().trim().max(60).optional() })
+    .safeParse({ league_id: fd.get('league_id'), number: fd.get('number'), name: fd.get('name') || undefined })
   if (!parsed.success) return { error: 'Número de jornada no válido.' }
   const { supabase } = await requireAdmin()
   const { data: season } = await supabase.from('seasons').select('id').eq('is_active', true).single()
   if (!season) return { error: 'No hay temporada activa.' }
   const { data, error } = await supabase
     .from('rounds')
-    .insert({ season_id: season.id, number: parsed.data.number, name: parsed.data.name || `Jornada ${parsed.data.number}` })
+    .insert({
+      league_id: parsed.data.league_id,
+      season_id: season.id,
+      number: parsed.data.number,
+      name: parsed.data.name || `Jornada ${parsed.data.number}`,
+    })
     .select('id')
     .single()
-  if (error) return { error: dbError(error) }
+  if (error) return { error: error.code === '23505' ? 'Ya existe una jornada con ese número en esta porra.' : dbError(error) }
   revalidatePath('/admin/jornadas')
   redirect(`/admin/jornadas/${data.id}`)
 }
@@ -117,17 +249,17 @@ export async function deleteRound(_: FormState, fd: FormData): Promise<FormState
 
 const fixtureSchema = z.object({
   round_id: uuid,
-  club: z.enum(['barcelona', 'real_madrid']),
+  club_team_id: uuid,
   competition: z.string().trim().min(2, 'Escribe la competición.').max(60),
-  home_team: z.string().trim().min(2, 'Escribe el equipo local.').max(60),
-  away_team: z.string().trim().min(2, 'Escribe el equipo visitante.').max(60),
+  home_team: teamName,
+  away_team: teamName,
   kickoff: z.string(),
 })
 
 function readFixture(fd: FormData) {
   return fixtureSchema.safeParse({
     round_id: fd.get('round_id'),
-    club: fd.get('club'),
+    club_team_id: fd.get('club_team_id'),
     competition: fd.get('competition'),
     home_team: fd.get('home_team'),
     away_team: fd.get('away_team'),
@@ -142,15 +274,26 @@ export async function saveFixture(_: FormState, fd: FormData): Promise<FormState
   if (!kickoffIso) return { error: 'Fecha y hora no válidas.' }
   const fixtureId = fd.get('fixture_id') ? String(fd.get('fixture_id')) : null
   const { supabase } = await requireAdmin()
+  let homeId: string, awayId: string
+  try {
+    ;[homeId, awayId] = await Promise.all([ensureTeam(supabase, parsed.data.home_team), ensureTeam(supabase, parsed.data.away_team)])
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'No se han podido guardar los equipos.' }
+  }
+  if (parsed.data.club_team_id !== homeId && parsed.data.club_team_id !== awayId) {
+    return { error: 'El club de la porra tiene que ser el local o el visitante de este partido.' }
+  }
   const values = {
     competition: parsed.data.competition,
     home_team: parsed.data.home_team,
     away_team: parsed.data.away_team,
+    home_team_id: homeId,
+    away_team_id: awayId,
     kickoff_at: kickoffIso,
   }
   const { error } = fixtureId
     ? await supabase.from('fixtures').update(values).eq('id', fixtureId)
-    : await supabase.from('fixtures').insert({ ...values, round_id: parsed.data.round_id, club: parsed.data.club })
+    : await supabase.from('fixtures').insert({ ...values, round_id: parsed.data.round_id, club_team_id: parsed.data.club_team_id })
   if (error) return { error: dbError(error) }
   refresh(parsed.data.round_id)
   return { success: 'Partido guardado.' }
@@ -163,12 +306,23 @@ export async function replaceFixture(_: FormState, fd: FormData): Promise<FormSt
   const fixtureId = uuid.safeParse(fd.get('fixture_id'))
   if (!kickoffIso || !fixtureId.success) return { error: 'Datos no válidos.' }
   const { supabase } = await requireAdmin()
+  let homeId: string, awayId: string
+  try {
+    ;[homeId, awayId] = await Promise.all([ensureTeam(supabase, parsed.data.home_team), ensureTeam(supabase, parsed.data.away_team)])
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'No se han podido guardar los equipos.' }
+  }
+  if (parsed.data.club_team_id !== homeId && parsed.data.club_team_id !== awayId) {
+    return { error: 'El club de la porra tiene que ser el local o el visitante de este partido.' }
+  }
   const { error } = await supabase.rpc('admin_replace_fixture', {
     p_fixture_id: fixtureId.data,
     p_competition: parsed.data.competition,
     p_home_team: parsed.data.home_team,
     p_away_team: parsed.data.away_team,
     p_kickoff_at: kickoffIso,
+    p_home_team_id: homeId,
+    p_away_team_id: awayId,
   })
   if (error) return { error: dbError(error) }
   refresh(parsed.data.round_id)
@@ -246,19 +400,25 @@ export async function reopenRound(_: FormState, fd: FormData): Promise<FormState
   return { success: 'Jornada reabierta. Corrige lo necesario y vuelve a liquidar.' }
 }
 
-// Bote ---------------------------------------------------------------------------------
+// Bote ---------------------------------------------------------------------------------------------
 export async function adjustPot(_: FormState, fd: FormData): Promise<FormState> {
   const parsed = z
     .object({
+      league_id: uuid,
       amount: z.coerce.number().positive('El importe debe ser mayor que 0.').max(100000),
       direction: z.enum(['add', 'remove']),
       note: z.string().trim().min(3, 'Escribe el motivo del ajuste.').max(200),
     })
-    .safeParse({ amount: String(fd.get('amount') ?? '').replace(',', '.'), direction: fd.get('direction'), note: fd.get('note') })
+    .safeParse({
+      league_id: fd.get('league_id'),
+      amount: String(fd.get('amount') ?? '').replace(',', '.'),
+      direction: fd.get('direction'),
+      note: fd.get('note'),
+    })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const cents = Math.round(parsed.data.amount * 100) * (parsed.data.direction === 'add' ? 1 : -1)
   const { supabase } = await requireAdmin()
-  const { error } = await supabase.rpc('admin_adjust_pot', { p_amount_cents: cents, p_note: parsed.data.note })
+  const { error } = await supabase.rpc('admin_adjust_pot', { p_league_id: parsed.data.league_id, p_amount_cents: cents, p_note: parsed.data.note })
   if (error) return { error: dbError(error) }
   refresh()
   return { success: 'Ajuste registrado.' }

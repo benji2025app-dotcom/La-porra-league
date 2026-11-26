@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { siteOrigin } from '@/lib/env'
@@ -133,7 +134,8 @@ export async function redeemInviteCode(_: FormState, formData: FormData): Promis
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const supabase = await createClient()
-  const { error } = await supabase.rpc('redeem_invite_code', { p_code: parsed.data })
+  const { data: leagueName, error } = await supabase.rpc('redeem_invite_code', { p_code: parsed.data })
   if (error) return { error: 'El código de invitación no es válido o ha caducado.' }
-  redirect('/pendiente')
+  revalidatePath('/', 'layout')
+  return { success: `Solicitud enviada a la porra ${leagueName}. Cuando el administrador te apruebe, la verás en la app.` }
 }

@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom'
 import { Lock, Minus, Plus } from 'lucide-react'
 import { submitPrediction } from './actions'
 import { FormMessage } from '@/components/ui'
+import { Crest } from '@/components/crest'
 
 function untilText(ms: number) {
   if (ms <= 0) return null
@@ -17,10 +18,14 @@ function untilText(ms: number) {
   return `Se cierra en ${m} min`
 }
 
-function Stepper({ team, value, onChange, disabled }: { team: string; value: number | null; onChange: (v: number) => void; disabled: boolean }) {
+type Side = { name: string; crest: string | null }
+
+function Stepper({ side, value, onChange, disabled }: { side: Side; value: number | null; onChange: (v: number) => void; disabled: boolean }) {
   const v = value ?? 0
+  const team = side.name
   return (
     <div className="flex flex-col items-center gap-2">
+      <Crest team={{ name: side.name, crest_url: side.crest }} size={40} />
       <span className="line-clamp-2 min-h-[2.5rem] text-center text-sm font-semibold leading-tight">{team}</span>
       <div className="flex items-center gap-1.5">
         <button
@@ -67,22 +72,22 @@ function SaveButton({ dirty }: { dirty: boolean }) {
 
 export function MatchPicker({
   fixtureId,
-  homeTeam,
-  awayTeam,
+  home,
+  away,
   kickoffAt,
   lockedAtLoad,
   saved,
 }: {
   fixtureId: string
-  homeTeam: string
-  awayTeam: string
+  home: Side
+  away: Side
   kickoffAt: string
   lockedAtLoad: boolean
   saved: { home: number; away: number } | null
 }) {
   const [state, action] = useActionState(submitPrediction, undefined)
-  const [home, setHome] = useState<number | null>(saved?.home ?? null)
-  const [away, setAway] = useState<number | null>(saved?.away ?? null)
+  const [homeGoals, setHome] = useState<number | null>(saved?.home ?? null)
+  const [awayGoals, setAway] = useState<number | null>(saved?.away ?? null)
   const [now, setNow] = useState<number | null>(null)
 
   useEffect(() => {
@@ -95,7 +100,7 @@ export function MatchPicker({
   const msLeft = now === null ? null : new Date(kickoffAt).getTime() - now
   const locked = lockedAtLoad || (msLeft !== null && msLeft <= 0)
   // Tras guardar, la acción revalida la página y `saved` llega actualizado desde el servidor.
-  const dirty = home !== null && away !== null && (saved?.home !== home || saved?.away !== away)
+  const dirty = homeGoals !== null && awayGoals !== null && (saved?.home !== homeGoals || saved?.away !== awayGoals)
 
   if (locked) {
     return (
@@ -113,12 +118,12 @@ export function MatchPicker({
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="fixture_id" value={fixtureId} />
-      <input type="hidden" name="home" value={home ?? ''} />
-      <input type="hidden" name="away" value={away ?? ''} />
+      <input type="hidden" name="home" value={homeGoals ?? ''} />
+      <input type="hidden" name="away" value={awayGoals ?? ''} />
       <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-1">
-        <Stepper team={homeTeam} value={home} onChange={setHome} disabled={false} />
+        <Stepper side={home} value={homeGoals} onChange={setHome} disabled={false} />
         <span aria-hidden className="pb-2 font-display text-2xl text-gold">:</span>
-        <Stepper team={awayTeam} value={away} onChange={setAway} disabled={false} />
+        <Stepper side={away} value={awayGoals} onChange={setAway} disabled={false} />
       </div>
       <SaveButton dirty={dirty} />
       <FormMessage error={state?.error} success={state?.success && !dirty ? state.success : undefined} />

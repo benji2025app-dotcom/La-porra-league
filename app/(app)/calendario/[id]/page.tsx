@@ -1,34 +1,34 @@
-import { serverNow } from '@/lib/time'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Lock } from 'lucide-react'
-import { requireMember } from '@/lib/auth'
+import { requireLeague } from '@/lib/auth'
 import { money } from '@/lib/format'
+import { serverNow } from '@/lib/time'
+import { FIXTURE_SELECT, byLeagueClub, clubOf, isLocked, type FixtureView } from '@/lib/queries'
 import { FixtureRow } from '@/components/fixture-row'
+import { Crest } from '@/components/crest'
 import { RoundStatus } from '@/components/round-status'
 
 export const metadata: Metadata = { title: 'Jornada' }
 
 export default async function RoundDetailPage({ params }: PageProps<'/calendario/[id]'>) {
   const { id } = await params
-  const { supabase, user } = await requireMember()
+  const { supabase, user, league } = await requireLeague()
   const { data: round } = await supabase
     .from('rounds')
-    .select(
-      'id, name, status, fixtures(id, club, competition, home_team, away_team, kickoff_at, status, locked_at, home_goals, away_goals), round_settlements(*), round_winners(user_id, share_cents)',
-    )
+    .select(`id, name, status, league_id, fixtures(${FIXTURE_SELECT}), round_settlements(*), round_winners(user_id, share_cents)`)
     .eq('id', id)
+    .eq('league_id', league.id)
     .neq('status', 'draft')
     .maybeSingle()
   if (!round) notFound()
 
-  const order = { barcelona: 0, real_madrid: 1 } as const
-  const fixtures = [...(round.fixtures ?? [])].sort((a, b) => order[a.club] - order[b.club])
+  const fixtures = [...((round.fixtures ?? []) as unknown as FixtureView[])].sort(byLeagueClub(league))
   const settlement = Array.isArray(round.round_settlements) ? round.round_settlements[0] : round.round_settlements
   const winnerIds = new Set((round.round_winners ?? []).map((w) => w.user_id))
 
-  // RLS solo devuelve los pronósticos ajenos de partidos ya empezados.
+  // RLS solo devuelve los pronósticos ajenos de partidos ya empezados y de tu porra.
   const { data: predictions } = await supabase
     .from('predictions')
     .select('fixture_id, user_id, home_goals, away_goals, profiles(display_name)')
@@ -41,7 +41,6 @@ export default async function RoundDetailPage({ params }: PageProps<'/calendario
   for (const p of predictions ?? []) players.set(p.user_id, p.profiles?.display_name ?? 'Jugador')
   const rows = [...players.entries()].sort((a, b) => Number(winnerIds.has(b[0])) - Number(winnerIds.has(a[0])) || a[1].localeCompare(b[1]))
   const now = serverNow()
-  const revealed = (f: (typeof fixtures)[number]) => f.locked_at !== null || new Date(f.kickoff_at).getTime() <= now || f.status === 'finished'
 
   return (
     <div className="space-y-6">
@@ -57,7 +56,7 @@ export default async function RoundDetailPage({ params }: PageProps<'/calendario
 
       <div className="space-y-2">
         {fixtures.map((f) => (
-          <FixtureRow key={f.id} fixture={f} />
+          <FixtureRow key={f.id} fixture={f} clubName={clubOf(league, f.club_team_id).name} />
         ))}
       </div>
 
@@ -77,16 +76,14 @@ export default async function RoundDetailPage({ params }: PageProps<'/calendario
               </strong>
             </p>
           ) : (
-            <p>
-              Bote en juego {money(settlement.pot_in_play_cents)}. Nadie acertó los dos marcadores: pasa entero a la siguiente jornada.
-            </p>
+            <p>Bote en juego {money(settlement.pot_in_play_cents)}. Nadie acertó los dos marcadores: pasa entero a la siguiente jornada.</p>
           )}
         </section>
       )}
 
       <section>
         <h2 className="font-display text-lg font-semibold">Pronósticos</h2>
-        {fixtures.some((f) => !revealed(f)) && (
+        {fixtures.some((f) => !isLocked(f, now)) && (
           <p className="mt-1 flex items-center gap-1.5 text-xs text-ivory-muted">
             <Lock size={12} aria-hidden /> Los de los demás se ven al empezar cada partido.
           </p>
@@ -98,12 +95,20 @@ export default async function RoundDetailPage({ params }: PageProps<'/calendario
             <caption className="sr-only">Pronósticos de cada jugador</caption>
             <thead className="text-xs text-ivory-muted">
               <tr className="border-b border-line">
-                <th scope="col" className="py-2.5 pl-4 text-left font-medium">Jugador</th>
-                {fixtures.map((f) => (
-                  <th key={f.id} scope="col" className="py-2.5 pr-4 text-right font-medium">
-                    {f.club === 'barcelona' ? 'Barça' : 'Madrid'}
-                  </th>
-                ))}
+                <th scope="col" className="py-2.5 pl-4 text-left font-medium">
+                  Jugador
+                </th>
+                {fixtures.map((f) => {
+                  const club = clubOf(league, f.club_team_id)
+                  return (
+                    <th key={f.id} scope="col" className="py-2.5 pr-4 text-right font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Crest team={club} size={16} />
+                        {club.short_name ?? club.name}
+                      </span>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">

@@ -8,6 +8,7 @@ const TABS = [
   { href: '/admin/jugadores', label: 'Jugadores' },
   { href: '/admin/jornadas', label: 'Jornadas' },
   { href: '/admin/bote', label: 'Bote' },
+  { href: '/admin/porras', label: 'Porras y equipos' },
 ]
 
 export function AdminTabs() {
